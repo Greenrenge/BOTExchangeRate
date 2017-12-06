@@ -25,20 +25,28 @@ namespace BOTExchangeRate
             }
         }
 
-        //public static List<string> TableToSync
-        //{
-        //    get
-        //    {
-        //        return GetValue("TableToSync", typeof(List<string>), ',') as List<string>;
-        //    }
-        //}
-        //public static List<string> TableOptions
-        //{
-        //    get
-        //    {
-        //        return GetValue("TableOptions", typeof(List<string>), ',') as List<string>;
-        //    }
-        //}
+
+        public static List<string> SyncCurrency
+        {
+            get
+            {
+                return GetValue("SyncCurrency", typeof(List<string>), ',') as List<string>;
+            }
+        }
+        public static string BuyValue
+        {
+            get
+            {
+                return GetString("BuyValue");
+            }
+        }
+        public static string SellValue
+        {
+            get
+            {
+                return GetString("SellValue");
+            }
+        }
         public static string SAPServerHost
         {
             get

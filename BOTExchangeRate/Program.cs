@@ -13,6 +13,7 @@ using System.Web;
 
 namespace BOTExchangeRate
 {
+
     class Program
     {
         private static readonly ILog log = LogManager.GetLogger("Main");
@@ -27,9 +28,16 @@ namespace BOTExchangeRate
             log4net.Config.XmlConfigurator.Configure();
             #endregion
 
+            //write log that programs is run
+            //check json to get last date that is not complete (on any currency)
+            //call api to get data
+            //convert the data to object and keep in json log (also delete older than 30 days out of log)
+            //call sap (check the log to write only incompleted record) and if success update json log
             CallRESTAysnc().Wait();
         }
 
+
+        
         private static async Task CallRESTAysnc()
         {
             ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12 | SecurityProtocolType.Tls11 | SecurityProtocolType.Tls;
@@ -58,8 +66,11 @@ namespace BOTExchangeRate
                 string responseString = await response.Content.ReadAsStringAsync();
 
 
-                JObject obj = JObject.Parse(responseString);
-
+                dynamic obj = JObject.Parse(responseString);
+                if(obj.result.success == "false")
+                {
+                    log.Error("error");
+                }
             }
         }
     }
