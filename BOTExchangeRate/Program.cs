@@ -13,7 +13,12 @@ using System.Web;
 
 namespace BOTExchangeRate
 {
-
+    //write log that programs is run
+    //check json to get last date that is not complete (on any currency)
+    //call api to get data
+    //convert the data to object and keep in json log (also delete older than 30 days out of log)
+    //call sap (check the log to write only incompleted record) and if success update json log
+    //CallRESTAysnc().Wait();
     class Program
     {
         private static readonly ILog log = LogManager.GetLogger("Main");
@@ -28,50 +33,48 @@ namespace BOTExchangeRate
             log4net.Config.XmlConfigurator.Configure();
             #endregion
 
-            //write log that programs is run
-            //check json to get last date that is not complete (on any currency)
-            //call api to get data
-            //convert the data to object and keep in json log (also delete older than 30 days out of log)
-            //call sap (check the log to write only incompleted record) and if success update json log
-            CallRESTAysnc().Wait();
+            DateTime programDatetime = DateTime.Now;
+            log.Debug("-----------------------------------------------------------------");
+            log.Debug("PROGRAM RUNS ON " + programDatetime.ToString("dd/MM/yyyy"));
+            log.Debug("-----------------------------------------------------------------");
         }
 
 
         
-        private static async Task CallRESTAysnc()
-        {
-            ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12 | SecurityProtocolType.Tls11 | SecurityProtocolType.Tls;
-            //https://stackoverflow.com/questions/33634605/not-receiving-response-after-postasync
-            //https://developer.salesforce.com/page/Working_with_Custom_SOAP_and_REST_Services_in_.NET_Applications
-            using (HttpClient client = new HttpClient())
-            {
-                //the line below enables TLS1.1 and TLS1.2 (Saleforce reject TLS1.0 which used in dot net framework 4.5.2)
-                //defined remote access app - develop --> remote access --> new
+        //private static async Task CallRESTAysnc()
+        //{
+        //    ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12 | SecurityProtocolType.Tls11 | SecurityProtocolType.Tls;
+        //    //https://stackoverflow.com/questions/33634605/not-receiving-response-after-postasync
+        //    //https://developer.salesforce.com/page/Working_with_Custom_SOAP_and_REST_Services_in_.NET_Applications
+        //    using (HttpClient client = new HttpClient())
+        //    {
+        //        //the line below enables TLS1.1 and TLS1.2 (Saleforce reject TLS1.0 which used in dot net framework 4.5.2)
+        //        //defined remote access app - develop --> remote access --> new
 
-                var builder = new UriBuilder("https://iapi.bot.or.th/Stat/Stat-ExchangeRate/DAILY_AVG_EXG_RATE_V1/");
-                builder.Port = -1;
-                var query = HttpUtility.ParseQueryString(builder.Query);
-                query["start_period"] = "2017-06-30";
-                query["end_period"] = "2017-06-30";
-                query["currency"] = "USD";
-                builder.Query = query.ToString();
-                string url = builder.ToString();
+        //        var builder = new UriBuilder("https://iapi.bot.or.th/Stat/Stat-ExchangeRate/DAILY_AVG_EXG_RATE_V1/");
+        //        builder.Port = -1;
+        //        var query = HttpUtility.ParseQueryString(builder.Query);
+        //        query["start_period"] = "2017-06-30";
+        //        query["end_period"] = "2017-06-30";
+        //        query["currency"] = "USD";
+        //        builder.Query = query.ToString();
+        //        string url = builder.ToString();
 
-                HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Get, url);
-                request.Headers.Add("api-key", "U9G1L457H6DCugT7VmBaEacbHV9RX0PySO05cYaGsm");
-                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                //request.Content = content;
-                HttpResponseMessage response = await client.SendAsync(request);
+        //        HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Get, url);
+        //        request.Headers.Add("api-key", "U9G1L457H6DCugT7VmBaEacbHV9RX0PySO05cYaGsm");
+        //        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        //        //request.Content = content;
+        //        HttpResponseMessage response = await client.SendAsync(request);
 
-                string responseString = await response.Content.ReadAsStringAsync();
+        //        string responseString = await response.Content.ReadAsStringAsync();
 
 
-                dynamic obj = JObject.Parse(responseString);
-                if(obj.result.success == "false")
-                {
-                    log.Error("error");
-                }
-            }
-        }
+        //        dynamic obj = JObject.Parse(responseString);
+        //        if(obj.result.success == "false")
+        //        {
+        //            log.Error("error");
+        //        }
+        //    }
+        //}
     }
 }

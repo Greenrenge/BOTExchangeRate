@@ -9,6 +9,8 @@ using System.Runtime.ExceptionServices;
 
 namespace GreenUtilities.JSONConfigHelper
 {
+    //TODO:ควรจะเป็น 1 path ต่อ 1 lock object --> ทำให้เป็น static method write ไม่ได้เพราะมันจะ lock ไม่ได้ หรือไม่งั้น lock ก็จะโยงกันมั่ว
+    
     public abstract class ConfigLockCheck
     {
         //synchronously read/write all files by this class

@@ -24,7 +24,13 @@ namespace BOTExchangeRate
                 return GetFullPath("LOG4NET_ERROR");
             }
         }
-
+        public static string JsonLog
+        {
+            get
+            {
+                return GetFullPath("JsonLog");
+            }
+        }
 
         public static List<string> SyncCurrency
         {
