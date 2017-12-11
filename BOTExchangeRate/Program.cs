@@ -3,6 +3,7 @@ using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.Configuration;
+using System.Globalization;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
@@ -24,6 +25,16 @@ namespace BOTExchangeRate
         private static readonly ILog log = LogManager.GetLogger("Main");
         static void Main(string[] args)
         {
+            DateTime programDatetime = DateTime.Now;
+            DateTime transactionDate = new DateTime(programDatetime.Year, programDatetime.Month, programDatetime.Day);
+            if (args != null && args.Count() > 0)
+            {
+                DateTime tryResult;
+                if(DateTime.TryParseExact(args.First(),"dd/MM/yyyy",new CultureInfo("en-US"),DateTimeStyles.None,out tryResult))
+                {
+                    transactionDate = tryResult;
+                }
+            }
             string path = System.IO.Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location);
             Appconfig.Initialize(path, ConfigurationManager.AppSettings, null);
 
@@ -33,48 +44,70 @@ namespace BOTExchangeRate
             log4net.Config.XmlConfigurator.Configure();
             #endregion
 
-            DateTime programDatetime = DateTime.Now;
+
             log.Debug("-----------------------------------------------------------------");
             log.Debug("PROGRAM RUNS ON " + programDatetime.ToString("dd/MM/yyyy"));
             log.Debug("-----------------------------------------------------------------");
+
+
+            log.Debug("-----------------------------------------------------------------");
+            log.Debug("API Call Start");
+            log.Debug("-----------------------------------------------------------------");
+            JsonLogService db = new JsonLogService(Appconfig.JsonLog);
+            var todayLog = db.GetDailyLog(transactionDate);
+            List<Task> taskList = new List<Task>();
+            foreach (var currencyPair in Appconfig.SyncCurrency)
+            {
+                var currencyInDb = db.GetCurrency(transactionDate, currencyPair);
+                taskList.Add(APIExecute(currencyInDb, transactionDate));
+            }
+
+            var unfinishedAPI = db.GetUnfinishedBOTSync();
+            foreach (var currencyPair in unfinishedAPI)
+            {
+                taskList.Add(APIExecute(currencyPair, transactionDate));
+            }
+            Task.WhenAll(taskList).Wait();
+            log.Debug("-----------------------------------------------------------------");
+            log.Debug("API Call Successfully");
+            log.Debug("-----------------------------------------------------------------");
+
+            //due to we passed object by ref so it should be okay to save json in db.
+            //log.Debug("-----------------------------------------------------------------");
+            //log.Debug("SAP Call Start");
+            //log.Debug("-----------------------------------------------------------------");
+            //
+            //foreach (var currencyPair in Appconfig.SyncCurrency)
+            //{
+            //    var currencyInDb = db.GetCurrency(transactionDate, currencyPair);
+            //    taskList.Add(APIExecute(currencyInDb, transactionDate));
+            //}
+            //
+            //foreach (var currencyPair in unfinishedAPI)
+            //{
+            //    taskList.Add(APIExecute(currencyPair, transactionDate));
+            //}
+            //Task.WhenAll(taskList).Wait();
+            //log.Debug("-----------------------------------------------------------------");
+            //log.Debug("SAP Call Successfully");
+            //log.Debug("-----------------------------------------------------------------");
         }
 
+        private static async Task APIExecute(CurrencyRate db,DateTime transactionDate)
+        {
+            var resultRest = await BOTBusinessService.GetRate(db.Currency, transactionDate);
+            if(resultRest.Success == false)
+            {
+                db.isAPIComplete = false;
 
-        
-        //private static async Task CallRESTAysnc()
-        //{
-        //    ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12 | SecurityProtocolType.Tls11 | SecurityProtocolType.Tls;
-        //    //https://stackoverflow.com/questions/33634605/not-receiving-response-after-postasync
-        //    //https://developer.salesforce.com/page/Working_with_Custom_SOAP_and_REST_Services_in_.NET_Applications
-        //    using (HttpClient client = new HttpClient())
-        //    {
-        //        //the line below enables TLS1.1 and TLS1.2 (Saleforce reject TLS1.0 which used in dot net framework 4.5.2)
-        //        //defined remote access app - develop --> remote access --> new
+            }
+            else
+            {
+                db.isAPIComplete = true;
+                db.Buy = resultRest.Data.Buy;
+                db.Sell = resultRest.Data.Sell;
+            }
 
-        //        var builder = new UriBuilder("https://iapi.bot.or.th/Stat/Stat-ExchangeRate/DAILY_AVG_EXG_RATE_V1/");
-        //        builder.Port = -1;
-        //        var query = HttpUtility.ParseQueryString(builder.Query);
-        //        query["start_period"] = "2017-06-30";
-        //        query["end_period"] = "2017-06-30";
-        //        query["currency"] = "USD";
-        //        builder.Query = query.ToString();
-        //        string url = builder.ToString();
-
-        //        HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Get, url);
-        //        request.Headers.Add("api-key", "U9G1L457H6DCugT7VmBaEacbHV9RX0PySO05cYaGsm");
-        //        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-        //        //request.Content = content;
-        //        HttpResponseMessage response = await client.SendAsync(request);
-
-        //        string responseString = await response.Content.ReadAsStringAsync();
-
-
-        //        dynamic obj = JObject.Parse(responseString);
-        //        if(obj.result.success == "false")
-        //        {
-        //            log.Error("error");
-        //        }
-        //    }
-        //}
+        }
     }
 }

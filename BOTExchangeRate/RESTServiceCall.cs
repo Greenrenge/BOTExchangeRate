@@ -1,7 +1,10 @@
-﻿using Newtonsoft.Json.Linq;
+﻿using log4net;
+using MaleeUtilities.ServiceUltil;
+using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
+using System.Globalization;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
@@ -52,7 +55,52 @@ namespace BOTExchangeRate
                 ExceptionHandling.LogException(ex);
                 return JObject.Parse(@" {'result':{'success':'false','error':{'message':'BOT Runtime Error in RESTServiceCall.GetJSONAsync() method.'}}}");
             }
-          
+
+        }
+    }
+
+    public class BOTBusinessService
+    {
+        private static readonly ILog log = LogManager.GetLogger("BOTBusinessService");
+        public static async Task<Result<CurrencyRate>> GetRate(string currency, DateTime date)
+        {
+            log.Debug("GetRate is run for " + currency + " " + date.ToString("dd/MM/yyyy"));
+            var query = new NameValueCollection();
+            query["start_period"] = date.ToString("yyyy-MM-dd", new CultureInfo("en-US"));
+            query["end_period"] = date.ToString("yyyy-MM-dd", new CultureInfo("en-US"));
+            query["currency"] = currency;
+
+            var header = new NameValueCollection();
+            header["api-key"] = Appconfig.BOTAPIKey;
+            var callResult = await RESTServiceCall.GetJSONAsync(Appconfig.BOTServiceEndPoint, query, header);
+
+            dynamic response = callResult;
+            if ((bool)response.result.success)
+            {
+                try
+                {
+                    dynamic data = response.data.data_detail;//first element
+                    string period = (string)data.period;
+                    string currency_pair = (string)data.currency_id;
+                    string buy = (string)data.GetType().GetProperty(Appconfig.BuyValue).GetValue(data, null);
+                    string sell = (string)data.GetType().GetProperty(Appconfig.SellValue).GetValue(data, null);
+                    log.Debug("GetRate Extracting Data complete at " + period + " " + currency_pair + " " + buy + " " + sell);
+                    return new Result<CurrencyRate> { Success = true, Data = new CurrencyRate { Date = date, Buy = Convert.ToDecimal(buy), Sell = Convert.ToDecimal(sell), isAPIComplete = true, isSyncSAP = false, Currency = currency_pair } };//TODO
+                }
+                catch (Exception ex)
+                {
+                    log.Debug("GetRate REST calling pass but extracting data error" + ex.Message);
+                    ExceptionHandling.LogException(ex);
+                    return new Result<CurrencyRate> { Success = false, Failure = FailureType.UnexpectedServiceBehaviorError, Message = ex.Message };
+                }
+
+            }
+            else
+            {
+                log.Debug("GetRate REST calling ERROR Occured" + response.result.error.message);
+                return new Result<CurrencyRate> { Success = false, Failure = FailureType.DatabaseConnectionError, Message = (string)response.result.error.message };
+            }
+
         }
     }
 }

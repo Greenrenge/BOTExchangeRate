@@ -33,9 +33,9 @@ namespace BOTExchangeRate
     public class DailyLog
     {
         public DateTime Date { get; set; }
-        public List<CurrecyRate> CurrenciesRate { get; set; }
+        public List<CurrencyRate> CurrenciesRate { get; set; }
     }
-    public class CurrecyRate
+    public class CurrencyRate
     {
         public DateTime Date { get; set; }
         public string Currency { get; set; }

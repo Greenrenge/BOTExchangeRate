@@ -39,6 +39,21 @@ namespace BOTExchangeRate
                 return GetValue("SyncCurrency", typeof(List<string>), ',') as List<string>;
             }
         }
+
+        public static string BOTAPIKey
+        {
+            get
+            {
+                return GetString("BOTAPIKey");
+            }
+        }
+        public static string BOTServiceEndPoint
+        {
+            get
+            {
+                return GetString("BOTServiceEndPoint");
+            }
+        }
         public static string BuyValue
         {
             get
