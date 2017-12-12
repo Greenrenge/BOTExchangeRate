@@ -25,16 +25,6 @@ namespace BOTExchangeRate
         private static readonly ILog log = LogManager.GetLogger("Main");
         static void Main(string[] args)
         {
-            DateTime programDatetime = DateTime.Now;
-            DateTime transactionDate = new DateTime(programDatetime.Year, programDatetime.Month, programDatetime.Day);
-            if (args != null && args.Count() > 0)
-            {
-                DateTime tryResult;
-                if(DateTime.TryParseExact(args.First(),"dd/MM/yyyy",new CultureInfo("en-US"),DateTimeStyles.None,out tryResult))
-                {
-                    transactionDate = tryResult;
-                }
-            }
             string path = System.IO.Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location);
             Appconfig.Initialize(path, ConfigurationManager.AppSettings, null);
 
@@ -44,70 +34,236 @@ namespace BOTExchangeRate
             log4net.Config.XmlConfigurator.Configure();
             #endregion
 
+            DateTime programDatetime = DateTime.Now;
+            DateTime runningDate;
+            if (programDatetime.Hour > Appconfig.BOTHourUpdate)
+            {
+                runningDate = new DateTime(programDatetime.Year, programDatetime.Month, programDatetime.Day);
+            }
+            else
+            {
+                //var programDatetimeYesterday = programDatetime.AddDays(-1);
+                var programDatetimeYesterday = programDatetime.AddDays(-1);
+                runningDate = new DateTime(programDatetimeYesterday.Year, programDatetimeYesterday.Month, programDatetimeYesterday.Day);
+            }
+            if (args != null && args.Count() > 0)
+            {
+                DateTime tryResult;
+                if (DateTime.TryParseExact(args.First(), "d/MM/yyyy", new CultureInfo("en-US"), DateTimeStyles.None, out tryResult))
+                {
+                    runningDate = tryResult;
+                }
+            }
 
-            log.Debug("-----------------------------------------------------------------");
-            log.Debug("PROGRAM RUNS ON " + programDatetime.ToString("dd/MM/yyyy"));
-            log.Debug("-----------------------------------------------------------------");
+            log.Debug("*******************************************************************");
+            log.Debug("PROGRAM RUNS ON " + programDatetime.ToString("dd/MM/yyyy HH:mm:ss"));
+            log.Debug("*******************************************************************");
 
-
-            log.Debug("-----------------------------------------------------------------");
-            log.Debug("API Call Start");
-            log.Debug("-----------------------------------------------------------------");
+            var dateToRun = new List<DateTime>();
+            if (!Appconfig.RecoveryMode) dateToRun.Add(runningDate);
+            else
+            {
+                foreach (var recoveryDate in Appconfig.RecoveryDate)
+                {
+                    DateTime tryResult;
+                    if (DateTime.TryParseExact(recoveryDate, "d/MM/yyyy", new CultureInfo("en-US"), DateTimeStyles.None, out tryResult))
+                    {
+                        dateToRun.Add(tryResult);
+                    }
+                }
+            }
             JsonLogService db = new JsonLogService(Appconfig.JsonLog);
-            var todayLog = db.GetDailyLog(transactionDate);
-            List<Task> taskList = new List<Task>();
-            foreach (var currencyPair in Appconfig.SyncCurrency)
+            foreach (var transactionDate in dateToRun)
             {
-                var currencyInDb = db.GetCurrency(transactionDate, currencyPair);
-                taskList.Add(APIExecute(currencyInDb, transactionDate));
+
+                #region  BOT API 
+                log.Debug("-----------------------------------------------------------------");
+                log.Debug("API Call Start");
+                log.Debug("-----------------------------------------------------------------");
+
+                var todayLog = db.GetDailyLog(transactionDate);
+                List<Task> taskList = new List<Task>();
+                foreach (var currencyPair in Appconfig.SyncCurrency)
+                {
+                    var currencyInDb = db.GetCurrency(transactionDate, currencyPair);
+                    //if sap is sync we will not call api again
+                    if (currencyInDb.isSyncSAP == false)
+                    {
+                        taskList.Add(APIExecute(currencyInDb, transactionDate));
+                    }
+                }
+
+                var unfinishedAPI = db.GetUnfinishedBOTSync().Where(x => x.Date != transactionDate && Appconfig.SyncCurrency.Contains(x.Currency) && x.isSyncSAP == false);
+                foreach (var currencyPair in unfinishedAPI)
+                {
+                    taskList.Add(APIExecute(currencyPair, currencyPair.Date));
+                }
+                Task.WhenAll(taskList).Wait();
+                log.Debug("-----------------------------------------------------------------");
+                log.Debug("API Call Successfully");
+                log.Debug("-----------------------------------------------------------------");
+                if (!db.SaveChange())
+                {
+                    log.Debug("-----------------------------------------------------------------");
+                    log.Debug("Log Update Error");
+                    log.Debug("-----------------------------------------------------------------");
+                }
+                else
+                {
+                    log.Debug("-----------------------------------------------------------------");
+                    log.Debug("Log Update Successful");
+                    log.Debug("-----------------------------------------------------------------");
+                }
+
+                #endregion
+
             }
 
-            var unfinishedAPI = db.GetUnfinishedBOTSync();
-            foreach (var currencyPair in unfinishedAPI)
-            {
-                taskList.Add(APIExecute(currencyPair, transactionDate));
-            }
-            Task.WhenAll(taskList).Wait();
-            log.Debug("-----------------------------------------------------------------");
-            log.Debug("API Call Successfully");
-            log.Debug("-----------------------------------------------------------------");
+            #region API Patch for non-value date
+            var patchingNeededDates = db.GetAllLog().Where(x => x.CurrenciesRate.Any(c => Appconfig.SyncCurrency.Contains(c.Currency) && c.isAPIComplete == true && c.isSyncSAP == false && c.Sell_SAP == (decimal)0 && c.Buy_SAP == (decimal)0)).ToList();//REVIEW
+            Patching(Appconfig.SyncCurrency, patchingNeededDates);
 
-            //due to we passed object by ref so it should be okay to save json in db.
-            //log.Debug("-----------------------------------------------------------------");
-            //log.Debug("SAP Call Start");
-            //log.Debug("-----------------------------------------------------------------");
-            //
-            //foreach (var currencyPair in Appconfig.SyncCurrency)
-            //{
-            //    var currencyInDb = db.GetCurrency(transactionDate, currencyPair);
-            //    taskList.Add(APIExecute(currencyInDb, transactionDate));
-            //}
-            //
-            //foreach (var currencyPair in unfinishedAPI)
-            //{
-            //    taskList.Add(APIExecute(currencyPair, transactionDate));
-            //}
-            //Task.WhenAll(taskList).Wait();
-            //log.Debug("-----------------------------------------------------------------");
-            //log.Debug("SAP Call Successfully");
-            //log.Debug("-----------------------------------------------------------------");
+
+
+
+            #endregion
+
+            #region SAP Part
+            /// we will send sap only isAPIcomplete and if none of Buy and Sell we will use the last known value before that day to be value sent to SAP
+            /// send only currency config
+
+            if (!db.SaveChange())
+            {
+                log.Debug("-----------------------------------------------------------------");
+                log.Debug("Log Update Error");
+                log.Debug("-----------------------------------------------------------------");
+            }
+            else
+            {
+                log.Debug("-----------------------------------------------------------------");
+                log.Debug("Log Update Successful");
+                log.Debug("-----------------------------------------------------------------");
+            }
+            #endregion
+            log.Debug("*******************************************************************");
+            log.Debug("PROGRAM RUNS COMPLETED " + programDatetime.ToString("dd/MM/yyyy HH:mm:ss"));
+            log.Debug("*******************************************************************");
+
         }
 
-        private static async Task APIExecute(CurrencyRate db,DateTime transactionDate)
+        private static async Task APIExecute(CurrencyRate db, DateTime transactionDate)
         {
             var resultRest = await BOTBusinessService.GetRate(db.Currency, transactionDate);
-            if(resultRest.Success == false)
+            if (resultRest.Success == false)
             {
                 db.isAPIComplete = false;
 
             }
             else
             {
-                db.isAPIComplete = true;
+                db.Date = transactionDate;
+                db.isAPIComplete = resultRest.Data.isAPIComplete;
                 db.Buy = resultRest.Data.Buy;
                 db.Sell = resultRest.Data.Sell;
+                db.Buy_SAP = db.Buy;
+                db.Sell_SAP = db.Sell;
             }
 
+        }
+
+        private static void Patching(List<string> currencies, List<DailyLog> log)
+        {
+            var allDates = log.Select(x => x.Date).ToList();
+            DateTime lowerBoundary = allDates.OrderBy(x => x).First().AddDays(-10);
+            DateTime higherBoundary = allDates.OrderByDescending(x => x).First();
+            List<Task<List<DailyLog>>> taskList = new List<Task<List<DailyLog>>>();
+            foreach (var currency in currencies)
+            {
+                taskList.Add(APIExecutePatching(currency, lowerBoundary, higherBoundary));
+            }
+            var task = Task.WhenAll(taskList);
+            task.Wait();
+            var result = task.Result;
+            List<DailyLog> logs = new List<DailyLog>();
+            foreach (var date in result)
+            {
+                logs = logs.Concat(date).ToList();
+            }
+
+            List<DailyLog> merged = new List<DailyLog>();
+            var resultGroup = logs.GroupBy(x => x.Date);
+            foreach (var group in resultGroup)
+            {
+                if (group.Key != default(DateTime))// we do not need error currency pair, we think that service should return empty list if currency is error.
+                {
+                    DailyLog groupLog = new DailyLog();
+                    groupLog.Date = group.Key;
+                    groupLog.CurrenciesRate = group.SelectMany(x => x.CurrenciesRate).ToList();
+                    merged.Add(groupLog);
+                }
+            }
+
+            //TODO : after we merge we need to specify algorithm to patch date to Buy_SAP and Sell_SAP (dont forget to error currency pair)
+            merged = merged.OrderBy(x => x.Date).ToList();
+            for (int i = 0; i < merged.Count; i++)
+            {
+                DateTime dateLower = DateTime.MinValue;
+                DateTime dateHigher = DateTime.MaxValue;
+                if (i == merged.Count - 1)
+                {
+                    dateLower = merged[i].Date;
+                }
+                else
+                {
+                    dateLower = merged[i].Date;
+                    dateHigher = merged[i + 1].Date;
+                }
+                var patchedLog = log.Where(l => l.Date.Date.CompareTo(dateLower.Date) >= 0 && l.Date.Date.CompareTo(dateHigher.Date) < 0);
+                foreach (var daylog in patchedLog)
+                {
+                    foreach (var currency in merged[i].CurrenciesRate)
+                    {
+                        var currencyToPatch = daylog.CurrenciesRate.FirstOrDefault(x => x.Currency == currency.Currency);//replace unknown currency
+                        if (currencyToPatch != null)
+                        {
+                            currencyToPatch.Buy_SAP = currency.Buy;
+                            currencyToPatch.Sell_SAP = currency.Sell;
+                            currencyToPatch.isAPIComplete = true;
+                            currencyToPatch.isSyncSAP = false;
+                        }
+                        else //new currency needed when patching
+                        {
+                            daylog.CurrenciesRate.Add(new CurrencyRate
+                            {
+                                Buy = 0,
+                                Sell = 0,
+                                Buy_SAP = currency.Buy,
+                                Sell_SAP = currency.Sell,
+                                Currency = currency.Currency,
+                                isAPIComplete = true,
+                                isSyncSAP = false,
+                                Date = daylog.Date
+                                
+                            });
+                        }
+                    }
+                }
+
+            }
+        }
+        private static async Task<List<DailyLog>> APIExecutePatching(string currency, DateTime startDate, DateTime endDate)
+        {
+            //async call
+            var resultRest = await BOTBusinessService.GetRatePatching(currency, startDate, endDate);
+            if (resultRest.Success == true)
+            {
+                return resultRest.Data;
+            }
+            else
+            {
+                return new List<DailyLog>();//key will be default(DateTime)
+                                            //error for particular currency
+            }
         }
     }
 }

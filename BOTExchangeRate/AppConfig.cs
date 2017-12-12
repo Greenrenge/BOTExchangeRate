@@ -54,6 +54,13 @@ namespace BOTExchangeRate
                 return GetString("BOTServiceEndPoint");
             }
         }
+        public static int BOTHourUpdate
+        {
+            get
+            {
+                return GetInteger("BOTHourUpdate");
+            }
+        }
         public static string BuyValue
         {
             get
@@ -66,6 +73,20 @@ namespace BOTExchangeRate
             get
             {
                 return GetString("SellValue");
+            }
+        }
+        public static bool RecoveryMode
+        {
+            get
+            {
+                return (bool)GetValue("RecoveryMode", typeof(bool));
+            }
+        }
+        public static List<string> RecoveryDate
+        {
+            get
+            {
+                return GetValue("RecoveryDate", typeof(List<string>), ',') as List<string>;
             }
         }
         public static string SAPServerHost

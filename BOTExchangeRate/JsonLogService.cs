@@ -29,6 +29,7 @@ namespace BOTExchangeRate
             try
             {
                 log = logManager.ReadConfig(_path);
+                if (log == null) log = new SyncLog();
                 return log;
             }
             catch (Exception ex)
@@ -60,6 +61,10 @@ namespace BOTExchangeRate
 
         }
 
+        public List<DailyLog> GetAllLog()
+        {
+            return _log.Log;
+        }
 
         public DailyLog GetDailyLog(DateTime date)
         {
@@ -80,7 +85,7 @@ namespace BOTExchangeRate
             if (currencyRate.Count() > 0) return currencyRate.First();
             else
             {
-                var newPair = new CurrencyRate { Currency = currency, isSyncSAP = false, isAPIComplete = false };
+                var newPair = new CurrencyRate { Date = date, Currency = currency, isSyncSAP = false, isAPIComplete = false };
                 dailyLog.CurrenciesRate.Add(newPair);
                 return newPair;
             }

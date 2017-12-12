@@ -17,6 +17,7 @@ namespace BOTExchangeRate
 {
     public class RESTServiceCall
     {
+        public static readonly ILog log = LogManager.GetLogger("RESTServiceCall");
         public static async Task<JObject> GetJSONAsync(string endpoint, NameValueCollection queryString, NameValueCollection header, int port = -1)
         {
             try
@@ -47,6 +48,7 @@ namespace BOTExchangeRate
                     HttpResponseMessage response = await client.SendAsync(request);
 
                     string responseString = await response.Content.ReadAsStringAsync();
+                    //log.Debug("Raw REST : " + responseString);
                     return JObject.Parse(responseString);
                 }
             }
@@ -75,17 +77,35 @@ namespace BOTExchangeRate
             var callResult = await RESTServiceCall.GetJSONAsync(Appconfig.BOTServiceEndPoint, query, header);
 
             dynamic response = callResult;
-            if ((bool)response.result.success)
+            if (response.result.success == "true")
             {
                 try
                 {
-                    dynamic data = response.data.data_detail;//first element
-                    string period = (string)data.period;
+                    var data = response.result.data["data_detail"].First;
+                    string period = data.period;
                     string currency_pair = (string)data.currency_id;
-                    string buy = (string)data.GetType().GetProperty(Appconfig.BuyValue).GetValue(data, null);
-                    string sell = (string)data.GetType().GetProperty(Appconfig.SellValue).GetValue(data, null);
+                    string buy = data[Appconfig.BuyValue];
+                    if (String.IsNullOrWhiteSpace(buy)) buy = "0";
+                    string sell = data[Appconfig.SellValue];
+                    if (String.IsNullOrWhiteSpace(sell)) sell = "0";
                     log.Debug("GetRate Extracting Data complete at " + period + " " + currency_pair + " " + buy + " " + sell);
-                    return new Result<CurrencyRate> { Success = true, Data = new CurrencyRate { Date = date, Buy = Convert.ToDecimal(buy), Sell = Convert.ToDecimal(sell), isAPIComplete = true, isSyncSAP = false, Currency = currency_pair } };//TODO
+
+                    bool isAPIComplete = !String.IsNullOrWhiteSpace(period);
+                    if (!isAPIComplete)
+                    {
+                        var timestampDate = DateTime.ParseExact((string)response.result.timestamp, "yyyy-MM-dd HH:mm:ss", new CultureInfo("en-US"));
+                        var lastupdated = DateTime.ParseExact((string)response.result.data.data_header.last_updated, "yyyy-MM-dd", new CultureInfo("en-US"));
+
+                        //ถ้า date เป็นของวันก่อนหน้า ถือว่าา APIComplete
+                        //หรือถ้า date เป็นของวันนี้ และ timestamp บอกว่าเลย 6 โมงเย็น จะถือว่า complete เช่นกัน
+                        if (date.CompareTo(timestampDate.Date) < 0) isAPIComplete = true;
+                        else
+                        {
+                            if (timestampDate.Hour >= 18) isAPIComplete = true;
+                        }
+                    }
+
+                    return new Result<CurrencyRate> { Success = true, Data = new CurrencyRate { Date = date, Buy = Convert.ToDecimal(buy), Sell = Convert.ToDecimal(sell), isAPIComplete = isAPIComplete, isSyncSAP = false, Currency = currency_pair } };
                 }
                 catch (Exception ex)
                 {
@@ -97,8 +117,80 @@ namespace BOTExchangeRate
             }
             else
             {
-                log.Debug("GetRate REST calling ERROR Occured" + response.result.error.message);
-                return new Result<CurrencyRate> { Success = false, Failure = FailureType.DatabaseConnectionError, Message = (string)response.result.error.message };
+                string errorMsg = string.Empty;
+                JToken errors = response.result["error"] as JToken;
+                foreach (dynamic error in errors)
+                {
+                    errorMsg += string.Format(@" {0}:{1} ", error.code, error.message);
+                }
+                log.Debug("GetRate REST calling ERROR Occured" + errorMsg);
+                return new Result<CurrencyRate> { Success = false, Failure = FailureType.DatabaseConnectionError, Message = errorMsg };
+            }
+
+        }
+
+        public static async Task<Result<List<DailyLog>>> GetRatePatching(string currency, DateTime dateStart, DateTime dateEnd)
+        {
+            log.Debug("GetRate Patching is run for " + currency + " " + dateStart.ToString("dd/MM/yyyy") + " to " + dateEnd.ToString("dd/MM/yyyy"));
+            var query = new NameValueCollection();
+            query["start_period"] = dateStart.ToString("yyyy-MM-dd", new CultureInfo("en-US"));
+            query["end_period"] = dateEnd.ToString("yyyy-MM-dd", new CultureInfo("en-US"));
+            query["currency"] = currency;
+
+            var header = new NameValueCollection();
+            header["api-key"] = Appconfig.BOTAPIKey;
+            var callResult = await RESTServiceCall.GetJSONAsync(Appconfig.BOTServiceEndPoint, query, header);
+
+            dynamic response = callResult;
+            if (response.result.success == "true")
+            {
+                try
+                {
+                    var output = new List<DailyLog>();
+                    foreach (var data in response.result.data["data_detail"])
+                    {
+                        string period = data.period;
+                        string currency_pair = (string)data.currency_id;
+                        string buy = data[Appconfig.BuyValue];
+                        if (String.IsNullOrWhiteSpace(buy)) buy = "0";
+                        string sell = data[Appconfig.SellValue];
+                        if (String.IsNullOrWhiteSpace(sell)) sell = "0";
+                        log.Debug("GetRatePatching Extracting Data complete at " + period + " " + currency_pair + " " + buy + " " + sell);
+                        if (!String.IsNullOrWhiteSpace(period))
+                        {
+                            var date = DateTime.ParseExact(period, "yyyy-MM-dd", new CultureInfo("en-US"));
+                            DailyLog log = new DailyLog()
+                            {
+                                CurrenciesRate = new List<CurrencyRate>
+                                {
+                                    new CurrencyRate { Date = date, Buy = Convert.ToDecimal(buy), Sell = Convert.ToDecimal(sell), isAPIComplete = true, isSyncSAP = false, Currency = currency_pair }
+                                }
+                                ,
+                                Date = date
+                            };
+                            output.Add(log);
+                        }
+                    }
+                    return new Result<List<DailyLog>> { Success = true, Data = output };
+                }
+                catch (Exception ex)
+                {
+                    log.Debug("GetRate REST calling pass but extracting data error" + ex.Message);
+                    ExceptionHandling.LogException(ex);
+                    return new Result<List<DailyLog>> { Success = false, Failure = FailureType.UnexpectedServiceBehaviorError, Message = ex.Message };
+                }
+
+            }
+            else
+            {
+                string errorMsg = string.Empty;
+                JToken errors = response.result["error"] as JToken;
+                foreach (dynamic error in errors)
+                {
+                    errorMsg += string.Format(@" {0}:{1} ", error.code, error.message);
+                }
+                log.Debug("GetRate REST calling ERROR Occured" + errorMsg);
+                return new Result<List<DailyLog>> { Success = false, Failure = FailureType.DatabaseConnectionError, Message = errorMsg };
             }
 
         }

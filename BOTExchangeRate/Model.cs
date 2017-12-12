@@ -41,6 +41,8 @@ namespace BOTExchangeRate
         public string Currency { get; set; }
         public decimal Buy { get; set; }
         public decimal Sell { get; set; }
+        public decimal Buy_SAP { get; set; }
+        public decimal Sell_SAP { get; set; }
         public bool isAPIComplete { get; set; }
         public bool isSyncSAP { get; set; }
     }
