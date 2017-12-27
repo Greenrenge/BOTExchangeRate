@@ -1,20 +1,12 @@
 ﻿using log4net;
 using MaleeUtilities.SAP.Utils;
-using Newtonsoft.Json.Linq;
 using SAP.Middleware.Connector;
 using System;
 using System.Collections.Generic;
 using System.Configuration;
 using System.Globalization;
 using System.Linq;
-using System.Net;
-using System.Net.Http;
-using System.Net.Http.Headers;
-using System.Text;
 using System.Threading.Tasks;
-using System.Web;
-using MaleeUtilities.SAP.Utils;
-using MaleeUtilities.ServiceUltil;
 
 namespace BOTExchangeRate
 {
@@ -37,7 +29,7 @@ namespace BOTExchangeRate
             log4net.GlobalContext.Properties["LOG4NET_DEBUG"] = Appconfig.LOG4NET_DEBUG; //log file path
             log4net.Config.XmlConfigurator.Configure();
             #endregion
-
+            var currencyRatioDict = Appconfig.CurrencyRatioDict;
             DateTime programDatetime = DateTime.Now;
             DateTime runningDate;
             if (programDatetime.Hour > Appconfig.BOTHourUpdate)
@@ -125,7 +117,7 @@ namespace BOTExchangeRate
 
             #region API Patch for non-value date
             var patchingNeededDates = db.GetAllLog().Where(x => x.CurrenciesRate.Any(c => Appconfig.SyncCurrency.Contains(c.Currency) && c.isAPIComplete == true && c.isSyncSAP == false && c.Sell_SAP == (decimal)0 && c.Buy_SAP == (decimal)0)).ToList();//REVIEW
-            Patching(Appconfig.SyncCurrency, patchingNeededDates);
+            if(patchingNeededDates.Count > 0) Patching(Appconfig.SyncCurrency, patchingNeededDates);
 
 
 
@@ -155,15 +147,17 @@ namespace BOTExchangeRate
 
             /*
              * TABLE :I_EXCHANGE
-             STRUCTURE TCURR
-                {MANDT:CHAR3,  // ไม่ต้องส่ง
-                KURST:CHAR4,  // B (Buy)หรือ M(Sell) 
-                FCURR:CHAR5, //From Currency (USD)
-                TCURR:CHAR5, //To Currency (THB) = fix
-                GDATU:CHAR8, // ddMMyyyy ex.01042017
-                UKURS:BCD[5:5], xxxxx.xxxxx 32.12457
-                FFACT:BCD[5:0], xxxxx // ไม่ส่ง
-                TFACT:BCD[5:0]}} xxxxx // ไม่ส่ง
+             STRUCTURE BAPI1093_0
+                RATE_TYPE	Exchange Rate Type , B = buy // M = sell
+                FROM_CURR	From currency
+                TO_CURRNCY	To-currency
+                VALID_FROM	Date from Which Entry Is Valid (yyyy-MM-dd)
+                EXCH_RATE	Direct Quoted Exchange Rate
+                FROM_FACTOR	Ratio for the "From" Currency Units, 1 // if JPY this is 100
+                TO_FACTOR	Ratio for the "To" Currency Units, 1
+                EXCH_RATE_V	Indirect Quoted Exchange Rate ****No input
+                FROM_FACTOR_V	Ratio for the "From" Currency Units ****No input
+                TO_FACTOR_V	Ratio for the "To" Currency Units ****No input
             */
             IRfcTable table = function["I_EXCHANGE"].GetTable();//table
             List<CurrencyRate> sentSAP = new List<CurrencyRate>();
@@ -175,25 +169,27 @@ namespace BOTExchangeRate
                     IRfcStructure Buy = table.CurrentRow;//current structure ,row
                     string structure_name = Buy.Metadata.Name;
                     //Buy
-                    Buy.SetValue("KURST", "B");
-                    Buy.SetValue("FCURR", cur.Currency);
-                    Buy.SetValue("TCURR", "THB");
-                    Buy.SetValue("GDATU", dailyLog.Date.ToString("ddMMyyyy", new CultureInfo("en-US")));
-                    Buy.SetValue("UKURS", cur.Buy_SAP.ToString("0.#####"));
-                    Buy.SetValue("FFACT", 1);
-                    Buy.SetValue("TFACT", 1);
+                    Buy.SetValue("RATE_TYPE", "B");
+                    Buy.SetValue("FROM_CURR", cur.Currency);
+                    Buy.SetValue("TO_CURRNCY", "THB");
+                    Buy.SetValue("VALID_FROM", dailyLog.Date.ToString("yyyy-MM-dd", new CultureInfo("en-US")));
+                    Buy.SetValue("EXCH_RATE", cur.Buy_SAP.ToString("0.#####"));
+                    if(currencyRatioDict.ContainsKey(cur.Currency)) Buy.SetValue("FROM_FACTOR", currencyRatioDict[cur.Currency]);
+                    else Buy.SetValue("FROM_FACTOR", 1);
+                    Buy.SetValue("TO_FACTOR", 1);
                     log.Debug(String.Format("{0}  {1}  {2}  {3}  {4}","B", cur.Currency,"THB", dailyLog.Date.ToString("ddMMyyyy", new CultureInfo("en-US")), cur.Buy_SAP.ToString("0.#####")));
 
                     table.Append();//create new row
                     IRfcStructure Sell = table.CurrentRow;//current structure ,row
                     //Sell
-                    Sell.SetValue("KURST", "M");
-                    Sell.SetValue("FCURR", cur.Currency);
-                    Sell.SetValue("TCURR", "THB");
-                    Sell.SetValue("GDATU", dailyLog.Date.ToString("ddMMyyyy", new CultureInfo("en-US")));
-                    Sell.SetValue("UKURS", cur.Sell_SAP.ToString("0.#####"));
-                    Sell.SetValue("FFACT", 1);
-                    Sell.SetValue("TFACT", 1);
+                    Sell.SetValue("RATE_TYPE", "M");
+                    Sell.SetValue("FROM_CURR", cur.Currency);
+                    Sell.SetValue("TO_CURRNCY", "THB");
+                    Sell.SetValue("VALID_FROM", dailyLog.Date.ToString("yyyy-MM-dd", new CultureInfo("en-US")));
+                    Sell.SetValue("EXCH_RATE", cur.Sell_SAP.ToString("0.#####"));
+                    if (currencyRatioDict.ContainsKey(cur.Currency)) Sell.SetValue("FROM_FACTOR", currencyRatioDict[cur.Currency]);
+                    else Sell.SetValue("FROM_FACTOR", 1);
+                    Sell.SetValue("TO_FACTOR", 1);
                     log.Debug(String.Format("{0}  {1}  {2}  {3}  {4}", "M", cur.Currency, "THB", dailyLog.Date.ToString("ddMMyyyy", new CultureInfo("en-US")), cur.Sell_SAP.ToString("0.#####")));
                     sentSAP.Add(cur);
                 }
@@ -210,8 +206,15 @@ namespace BOTExchangeRate
                     x.isSyncSAP = true;
                 });
             }
-            catch (Exception ex)
+            catch (SAP.Middleware.Connector.RfcAbapClassicException ex)
             {
+                if(ex.Key == "SAPSQL_ARRAY_INSERT_DUPREC")
+                {
+                    //dublicate record found
+                    log.Debug("-----------------------------------------------------------------");
+                    log.Debug("SAP CALLED Error : DUBLICATED RECORD FOUND IN SAP.");
+                    log.Debug("-----------------------------------------------------------------");
+                }
                 ExceptionHandling.LogException(ex);
             }
             //Call bapi

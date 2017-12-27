@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using MaleeUtilities;
+using MaleeUtilities.Extensions;
 using System.Runtime.ExceptionServices;
 
 namespace BOTExchangeRate
@@ -37,6 +38,28 @@ namespace BOTExchangeRate
             get
             {
                 return GetValue("SyncCurrency", typeof(List<string>), ',') as List<string>;
+            }
+        }
+        public static List<string> CurrencyRatio
+        {
+            get
+            {
+                return GetValue("CurrencyRatio", typeof(List<string>), ',') as List<string>;
+            }
+        }
+        public static Dictionary<string,int> CurrencyRatioDict
+        {
+            get
+            {
+                Dictionary<string, int> output = new Dictionary<string, int>();
+                var currencyRatio = CurrencyRatio;
+                foreach(var setting in currencyRatio)
+                {
+                    var currency = setting.SplitAndSelectAtIndex('=', 0);//setting.SubstringUntil("=");
+                    int ratio = Convert.ToInt32(setting.SplitAndSelectAtIndex('=', 1));
+                    if (!output.ContainsKey(currency)) output.Add(currency, ratio);
+                }
+                return output;
             }
         }
 
