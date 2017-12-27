@@ -1,5 +1,7 @@
 ﻿using log4net;
+using MaleeUtilities.SAP.Utils;
 using Newtonsoft.Json.Linq;
+using SAP.Middleware.Connector;
 using System;
 using System.Collections.Generic;
 using System.Configuration;
@@ -11,6 +13,8 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Threading.Tasks;
 using System.Web;
+using MaleeUtilities.SAP.Utils;
+using MaleeUtilities.ServiceUltil;
 
 namespace BOTExchangeRate
 {
@@ -130,7 +134,109 @@ namespace BOTExchangeRate
 
             #region SAP Part
             /// we will send sap only isAPIcomplete and if none of Buy and Sell we will use the last known value before that day to be value sent to SAP
-            /// send only currency config
+            /// send only currency config, only isAPIComplete = true, only isSAPComplete = false
+            var sapSent = db.GetAllLog().Where(x => x.CurrenciesRate.Any(c => Appconfig.SyncCurrency.Contains(c.Currency) && c.isAPIComplete == true && c.isSyncSAP == false && c.Sell_SAP != (decimal)0 && c.Buy_SAP != (decimal)0)).ToList();
+           
+            #region  SAP Connection
+            DestinationRegister.RegistrationDestination(new SAPDestinationSetting
+            {
+                AppServerHost = Appconfig.SAPServerHost,
+                Client = Appconfig.SAPClient,
+                User = Appconfig.SAPUser,
+                Password = Appconfig.SAPPassword,
+                SystemNumber = Appconfig.SAPSystemNumber,
+                SystemID = Appconfig.SAPSystemID,
+            });
+            var des = RfcDestinationManager.GetDestination(DestinationRegister.Destination());
+            IRfcFunction function = des.Repository.CreateFunction("ZBAPI_EXCHANGERATE_UPDATE");
+            #endregion
+
+            #region example for input structure as input bapi
+
+            /*
+             * TABLE :I_EXCHANGE
+             STRUCTURE TCURR
+                {MANDT:CHAR3,  // ไม่ต้องส่ง
+                KURST:CHAR4,  // B (Buy)หรือ M(Sell) 
+                FCURR:CHAR5, //From Currency (USD)
+                TCURR:CHAR5, //To Currency (THB) = fix
+                GDATU:CHAR8, // ddMMyyyy ex.01042017
+                UKURS:BCD[5:5], xxxxx.xxxxx 32.12457
+                FFACT:BCD[5:0], xxxxx // ไม่ส่ง
+                TFACT:BCD[5:0]}} xxxxx // ไม่ส่ง
+            */
+            IRfcTable table = function["I_EXCHANGE"].GetTable();//table
+            List<CurrencyRate> sentSAP = new List<CurrencyRate>();
+            foreach(var dailyLog in sapSent)
+            {
+                foreach(var cur in dailyLog.CurrenciesRate.Where(c => Appconfig.SyncCurrency.Contains(c.Currency) && c.isAPIComplete == true && c.isSyncSAP == false && c.Sell_SAP != (decimal)0 && c.Buy_SAP != (decimal)0))
+                {
+                    table.Append();//create new row
+                    IRfcStructure Buy = table.CurrentRow;//current structure ,row
+                    string structure_name = Buy.Metadata.Name;
+                    //Buy
+                    Buy.SetValue("KURST", "B");
+                    Buy.SetValue("FCURR", cur.Currency);
+                    Buy.SetValue("TCURR", "THB");
+                    Buy.SetValue("GDATU", dailyLog.Date.ToString("ddMMyyyy", new CultureInfo("en-US")));
+                    Buy.SetValue("UKURS", cur.Buy_SAP.ToString("0.#####"));
+                    Buy.SetValue("FFACT", 1);
+                    Buy.SetValue("TFACT", 1);
+                    log.Debug(String.Format("{0}  {1}  {2}  {3}  {4}","B", cur.Currency,"THB", dailyLog.Date.ToString("ddMMyyyy", new CultureInfo("en-US")), cur.Buy_SAP.ToString("0.#####")));
+
+                    table.Append();//create new row
+                    IRfcStructure Sell = table.CurrentRow;//current structure ,row
+                    //Sell
+                    Sell.SetValue("KURST", "M");
+                    Sell.SetValue("FCURR", cur.Currency);
+                    Sell.SetValue("TCURR", "THB");
+                    Sell.SetValue("GDATU", dailyLog.Date.ToString("ddMMyyyy", new CultureInfo("en-US")));
+                    Sell.SetValue("UKURS", cur.Sell_SAP.ToString("0.#####"));
+                    Sell.SetValue("FFACT", 1);
+                    Sell.SetValue("TFACT", 1);
+                    log.Debug(String.Format("{0}  {1}  {2}  {3}  {4}", "M", cur.Currency, "THB", dailyLog.Date.ToString("ddMMyyyy", new CultureInfo("en-US")), cur.Sell_SAP.ToString("0.#####")));
+                    sentSAP.Add(cur);
+                }
+            }
+
+            var count = table.Count;
+            #endregion
+
+            try
+            {
+                function.Invoke(des);
+                sentSAP.ForEach(x =>
+                {
+                    x.isSyncSAP = true;
+                });
+            }
+            catch (Exception ex)
+            {
+                ExceptionHandling.LogException(ex);
+            }
+            //Call bapi
+
+            #region example for fetch structure as object
+            /*
+             *  IRfcParameter export = function["PRHEADER"];
+            IRfcStructure structure = export.GetStructure();
+            var setting = new PropertiesList<DataContainer>
+            {
+                { "PREQ_NO", x=>x.PREQ_NO},
+                { "PREQ_NO", x=>x.PREQ_NO},
+                { "PR_TYPE", x=>x.PR_TYPE},
+                { "CTRL_IND", x=>x.CTRL_IND},
+            };
+            DataContainer output = structure.ToObject(setting);*/
+            #endregion
+
+            IRfcParameter returnTable = function["I_EXCHANGE"];
+            IRfcTable table1 = returnTable.GetTable();
+
+            //foreach (IRfcStructure record in table1)
+            //{
+            //    Console.WriteLine(String.Format("{0}:{1}", record.GetInt("PREQ_ITEM"), record.GetValue("PREQ_ITEM").ToString()));
+            //}
 
             if (!db.SaveChange())
             {
@@ -148,7 +254,6 @@ namespace BOTExchangeRate
             log.Debug("*******************************************************************");
             log.Debug("PROGRAM RUNS COMPLETED " + programDatetime.ToString("dd/MM/yyyy HH:mm:ss"));
             log.Debug("*******************************************************************");
-
         }
 
         private static async Task APIExecute(CurrencyRate db, DateTime transactionDate)
@@ -243,7 +348,7 @@ namespace BOTExchangeRate
                                 isAPIComplete = true,
                                 isSyncSAP = false,
                                 Date = daylog.Date
-                                
+
                             });
                         }
                     }
