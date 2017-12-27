@@ -117,7 +117,7 @@ namespace BOTExchangeRate
 
             #region API Patch for non-value date
             var patchingNeededDates = db.GetAllLog().Where(x => x.CurrenciesRate.Any(c => Appconfig.SyncCurrency.Contains(c.Currency) && c.isAPIComplete == true && c.isSyncSAP == false && c.Sell_SAP == (decimal)0 && c.Buy_SAP == (decimal)0)).ToList();//REVIEW
-            if(patchingNeededDates.Count > 0) Patching(Appconfig.SyncCurrency, patchingNeededDates);
+            if (patchingNeededDates.Count > 0) Patching(Appconfig.SyncCurrency, patchingNeededDates);
 
 
 
@@ -128,7 +128,7 @@ namespace BOTExchangeRate
             /// we will send sap only isAPIcomplete and if none of Buy and Sell we will use the last known value before that day to be value sent to SAP
             /// send only currency config, only isAPIComplete = true, only isSAPComplete = false
             var sapSent = db.GetAllLog().Where(x => x.CurrenciesRate.Any(c => Appconfig.SyncCurrency.Contains(c.Currency) && c.isAPIComplete == true && c.isSyncSAP == false && c.Sell_SAP != (decimal)0 && c.Buy_SAP != (decimal)0)).ToList();
-           
+
             #region  SAP Connection
             DestinationRegister.RegistrationDestination(new SAPDestinationSetting
             {
@@ -161,9 +161,9 @@ namespace BOTExchangeRate
             */
             IRfcTable table = function["I_EXCHANGE"].GetTable();//table
             List<CurrencyRate> sentSAP = new List<CurrencyRate>();
-            foreach(var dailyLog in sapSent)
+            foreach (var dailyLog in sapSent)
             {
-                foreach(var cur in dailyLog.CurrenciesRate.Where(c => Appconfig.SyncCurrency.Contains(c.Currency) && c.isAPIComplete == true && c.isSyncSAP == false && c.Sell_SAP != (decimal)0 && c.Buy_SAP != (decimal)0))
+                foreach (var cur in dailyLog.CurrenciesRate.Where(c => Appconfig.SyncCurrency.Contains(c.Currency) && c.isAPIComplete == true && c.isSyncSAP == false && c.Sell_SAP != (decimal)0 && c.Buy_SAP != (decimal)0))
                 {
                     table.Append();//create new row
                     IRfcStructure Buy = table.CurrentRow;//current structure ,row
@@ -174,10 +174,10 @@ namespace BOTExchangeRate
                     Buy.SetValue("TO_CURRNCY", "THB");
                     Buy.SetValue("VALID_FROM", dailyLog.Date.ToString("yyyy-MM-dd", new CultureInfo("en-US")));
                     Buy.SetValue("EXCH_RATE", cur.Buy_SAP.ToString("0.#####"));
-                    if(currencyRatioDict.ContainsKey(cur.Currency)) Buy.SetValue("FROM_FACTOR", currencyRatioDict[cur.Currency]);
+                    if (currencyRatioDict.ContainsKey(cur.Currency)) Buy.SetValue("FROM_FACTOR", currencyRatioDict[cur.Currency]);
                     else Buy.SetValue("FROM_FACTOR", 1);
                     Buy.SetValue("TO_FACTOR", 1);
-                    log.Debug(String.Format("{0}  {1}  {2}  {3}  {4}","B", cur.Currency,"THB", dailyLog.Date.ToString("ddMMyyyy", new CultureInfo("en-US")), cur.Buy_SAP.ToString("0.#####")));
+                    log.Debug(String.Format("{0}  {1}  {2}  {3}  {4}", "B", cur.Currency, "THB", dailyLog.Date.ToString("ddMMyyyy", new CultureInfo("en-US")), cur.Buy_SAP.ToString("0.#####")));
 
                     table.Append();//create new row
                     IRfcStructure Sell = table.CurrentRow;//current structure ,row
@@ -197,25 +197,29 @@ namespace BOTExchangeRate
 
             var count = table.Count;
             #endregion
+            if (count > 0)
+            {
+                try
+                {
 
-            try
-            {
-                function.Invoke(des);
-                sentSAP.ForEach(x =>
-                {
-                    x.isSyncSAP = true;
-                });
-            }
-            catch (SAP.Middleware.Connector.RfcAbapClassicException ex)
-            {
-                if(ex.Key == "SAPSQL_ARRAY_INSERT_DUPREC")
-                {
-                    //dublicate record found
-                    log.Debug("-----------------------------------------------------------------");
-                    log.Debug("SAP CALLED Error : DUBLICATED RECORD FOUND IN SAP.");
-                    log.Debug("-----------------------------------------------------------------");
+                    function.Invoke(des);
+                    sentSAP.ForEach(x =>
+                    {
+                        x.isSyncSAP = true;
+                    });
+
                 }
-                ExceptionHandling.LogException(ex);
+                catch (SAP.Middleware.Connector.RfcAbapClassicException ex)
+                {
+                    if (ex.Key == "SAPSQL_ARRAY_INSERT_DUPREC")
+                    {
+                        //dublicate record found
+                        log.Debug("-----------------------------------------------------------------");
+                        log.Debug("SAP CALLED Error : DUBLICATED RECORD FOUND IN SAP.");
+                        log.Debug("-----------------------------------------------------------------");
+                    }
+                    ExceptionHandling.LogException(ex);
+                }
             }
             //Call bapi
 
