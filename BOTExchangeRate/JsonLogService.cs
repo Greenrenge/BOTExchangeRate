@@ -11,10 +11,8 @@ namespace BOTExchangeRate
     {
         private readonly string _path;
         private SyncLog _log;
-        private int _daysToRecover;
         public JsonLogService(string path, int daysToRecover = 30)
         {
-            _daysToRecover = daysToRecover;
             _path = path;
             _log = FetchLog();
         }
@@ -38,8 +36,6 @@ namespace BOTExchangeRate
                 log = new SyncLog();
                 return log;
             }
-
-
         }
         /// <summary>
         /// save the config file to the path, after done the operations.
@@ -66,7 +62,7 @@ namespace BOTExchangeRate
             return _log.Log;
         }
 
-        public DailyLog GetDailyLog(DateTime date)
+        public DailyLog GetOrCreateDailyLog(DateTime date)
         {
             var log = _log.Log.Where(l => l.Date == date);
             if (log.Count() > 0) return log.First();
@@ -78,9 +74,9 @@ namespace BOTExchangeRate
             }
         }
 
-        public CurrencyRate GetCurrency(DateTime date, string currency)
+        public CurrencyRate GetOrCreateCurrency(DateTime date, string currency)
         {
-            var dailyLog = GetDailyLog(date);
+            var dailyLog = GetOrCreateDailyLog(date);
             var currencyRate = dailyLog.CurrenciesRate.Where(c => c.Currency == currency);
             if (currencyRate.Count() > 0) return currencyRate.First();
             else
@@ -134,8 +130,22 @@ namespace BOTExchangeRate
             return SaveLog(_log);
         }
 
-
-
+        /// <summary>
+        /// return default(DateTime) if not found
+        /// </summary>
+        /// <returns></returns>
+        public DateTime GetLastRunningDate()
+        {
+            if (_log != null)
+            {
+                if(_log.Log.Count == 0 ) return default(DateTime);
+                else
+                {
+                    return _log.Log.OrderByDescending(x => x.Date).First().Date;
+                }
+            }
+            else return default(DateTime);
+        }
         public List<CurrencyRate> GetUnfinishedBOTSync()
         {
             var output = new List<CurrencyRate>();

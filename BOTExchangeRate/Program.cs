@@ -38,7 +38,6 @@ namespace BOTExchangeRate
             }
             else
             {
-                //var programDatetimeYesterday = programDatetime.AddDays(-1);
                 var programDatetimeYesterday = programDatetime.AddDays(-1);
                 runningDate = new DateTime(programDatetimeYesterday.Year, programDatetimeYesterday.Month, programDatetimeYesterday.Day);
             }
@@ -54,9 +53,28 @@ namespace BOTExchangeRate
             log.Debug("*******************************************************************");
             log.Debug("PROGRAM RUNS ON " + programDatetime.ToString("dd/MM/yyyy HH:mm:ss"));
             log.Debug("*******************************************************************");
-
+            JsonLogService db = new JsonLogService(Appconfig.JsonLog);
             var dateToRun = new List<DateTime>();
-            if (!Appconfig.RecoveryMode) dateToRun.Add(runningDate);
+            if (!Appconfig.RecoveryMode)
+            {
+                dateToRun.Add(runningDate);// we could check last date run is yesterday|| today ? if not we cound add lost day in between
+                var lastDataDate = db.GetLastRunningDate();
+                if(lastDataDate != default(DateTime) && lastDataDate.CompareTo(runningDate) <0)// 0 means run second time for the day, 1 is not possible (if we do not force them to run future's day)
+                {
+                    log.Debug("-----------------------------------------------------------------");
+                    log.Debug("CHECKING LAST RUNING DATE FOR SPECIFY DATES TO RUN (IF THERE IS MISSING RUNNING ON SOME DAYS)");
+                    log.Debug("-----------------------------------------------------------------");
+                    var timeSpanDiff = runningDate.Subtract(lastDataDate);
+                    if(timeSpanDiff.TotalDays > 1)
+                    {
+                        int dayToRecover = Convert.ToInt32(timeSpanDiff.TotalDays) - 1;
+                        for(int i = 1; i <= dayToRecover; i++)
+                        {
+                            dateToRun.Add(runningDate.AddDays(-i));
+                        }
+                    }
+                }
+            }
             else
             {
                 foreach (var recoveryDate in Appconfig.RecoveryDate)
@@ -68,7 +86,7 @@ namespace BOTExchangeRate
                     }
                 }
             }
-            JsonLogService db = new JsonLogService(Appconfig.JsonLog);
+
             foreach (var transactionDate in dateToRun)
             {
 
@@ -77,11 +95,11 @@ namespace BOTExchangeRate
                 log.Debug("API Call Start");
                 log.Debug("-----------------------------------------------------------------");
 
-                var todayLog = db.GetDailyLog(transactionDate);
+                //var todayLog = db.GetDailyLog(transactionDate);//??
                 List<Task> taskList = new List<Task>();
                 foreach (var currencyPair in Appconfig.SyncCurrency)
                 {
-                    var currencyInDb = db.GetCurrency(transactionDate, currencyPair);
+                    var currencyInDb = db.GetOrCreateCurrency(transactionDate, currencyPair);
                     //if sap is sync we will not call api again
                     if (currencyInDb.isSyncSAP == false)
                     {
@@ -118,10 +136,6 @@ namespace BOTExchangeRate
             #region API Patch for non-value date
             var patchingNeededDates = db.GetAllLog().Where(x => x.CurrenciesRate.Any(c => Appconfig.SyncCurrency.Contains(c.Currency) && c.isAPIComplete == true && c.isSyncSAP == false && c.Sell_SAP == (decimal)0 && c.Buy_SAP == (decimal)0)).ToList();//REVIEW
             if (patchingNeededDates.Count > 0) Patching(Appconfig.SyncCurrency, patchingNeededDates);
-
-
-
-
             #endregion
 
             #region SAP Part
