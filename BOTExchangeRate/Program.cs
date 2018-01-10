@@ -1,4 +1,5 @@
 ﻿using log4net;
+using MaleeUtilities.Mail;
 using MaleeUtilities.SAP.Utils;
 using SAP.Middleware.Connector;
 using System;
@@ -6,6 +7,7 @@ using System.Collections.Generic;
 using System.Configuration;
 using System.Globalization;
 using System.Linq;
+using System.Text;
 using System.Threading.Tasks;
 
 namespace BOTExchangeRate
@@ -167,6 +169,8 @@ namespace BOTExchangeRate
             log.Debug("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++");
             log.Debug("SAP START");
             log.Debug("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++");
+            bool isSAPCompleted = true;
+            string SAPErrorMsg = string.Empty;
             try
             {
                 var sapSent = db.GetAllLog().Where(x => x.CurrenciesRate.Any(c => Appconfig.SyncCurrency.Contains(c.Currency) && c.isAPIComplete == true && c.isSyncSAP == false && c.Sell_SAP != (decimal)0 && c.Buy_SAP != (decimal)0)).ToList();
@@ -263,6 +267,8 @@ namespace BOTExchangeRate
                     }
                     catch (Exception ex)
                     {
+                        isSAPCompleted = false;
+                        SAPErrorMsg += Environment.NewLine + ex.Message;
                         log.Debug("-----------------------------------------------------------------");
                         log.Debug("SAP BAPI CALL Error : READ THE EXCEPTION DETAIL.");
                         log.Debug("-----------------------------------------------------------------");
@@ -308,18 +314,111 @@ namespace BOTExchangeRate
             }
             catch (Exception ex)
             {
+                isSAPCompleted = false;
+                SAPErrorMsg += Environment.NewLine + ex.Message;
                 log.Debug("-----------------------------------------------------------------");
                 log.Debug("SAP PART Error :  READ THE EXCEPTION DETAIL.");
                 log.Debug("-----------------------------------------------------------------");
                 ExceptionHandling.LogException(ex);
             }
+
+            #endregion
+
+
+
+            #region AlertMsg
+
+            try
+            {
+                if (!Appconfig.RecoveryMode
+               && db.GetOrCreateDailyLog(runningDate).CurrenciesRate.Any(x => Appconfig.SyncCurrency.Contains(x.Currency) && x.isSyncSAP == false && x.Sell != (decimal)0 && x.Buy != (decimal)0)
+               && programDatetime.Date.AddDays(-1) == runningDate.Date
+               && programDatetime.Hour < Appconfig.BOTHourUpdate && programDatetime.Hour > Appconfig.AlertCutOffTime)
+                {
+                    //recovery mode is off
+                    //there is some sync currency which cannot sent to SAP found and it is not dayoff (sell && buy !=0)
+                    //program is running on not today for sure (not after 18.00 of the day) (not before 7.00 of the program date)
+
+                    MailService mailService = new MailService(Appconfig.MailServer, Appconfig.MailServerPort);
+
+                    //send email to user
+                    Email userMail = new Email();
+                    userMail.Cc = Appconfig.AlertAdminEmail;
+                    userMail.From = Appconfig.MailAdminAdress;
+                    userMail.To = Appconfig.AlertUserEmail;
+                    userMail.Subject = @"[BOTExchangeRate] ERROR UPDATE TO SAP NOTIFICATION";
+                    userMail.SenderName = @"BOTExchange Automatic Email Alert";
+                    userMail.BodyMessage = MailTemplateUser(runningDate, Appconfig.SyncCurrency);
+
+                    mailService.SendMail(userMail);
+                    //send email to admin if exception found
+                    if (!isSAPCompleted)
+                    {
+                        Email adminMail = new Email();
+                        adminMail.From = Appconfig.MailAdminAdress;
+                        adminMail.To = Appconfig.AlertAdminEmail;
+                        adminMail.Subject = @"[BOTExchangeRate] ERROR UPDATE TO SAP NOTIFICATION [DEBUG]";
+                        adminMail.SenderName = @"BOTExchange Automatic Email Alert";
+                        adminMail.BodyMessage = MailTemplateAdmin(runningDate, Appconfig.SyncCurrency, SAPErrorMsg);
+                        mailService.SendMail(adminMail);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                log.Debug("-----------------------------------------------------------------");
+                log.Debug("EMAIL ALERT ERROR");
+                log.Debug("-----------------------------------------------------------------");
+                ExceptionHandling.LogException(ex);
+            }
            
             #endregion
+
+
             log.Debug("*******************************************************************");
             log.Debug("PROGRAM RUNS COMPLETED " + programDatetime.ToString("dd/MM/yyyy HH:mm:ss"));
             log.Debug("*******************************************************************");
         }
 
+        private static string MailTemplateUser(DateTime date,List<string> currencies)
+        {
+            StringBuilder sb = new StringBuilder();
+            sb.Append("<div style='font:16px calibri,sans-serif;'>This email is to notify you that,<br/>" +
+                      "There was <span style='color:red'> error </span> found in BOT Exchange Rate Auto Update To SAP.<br/>");
+            sb.Append(@"<b>Please consider to MANUAL INPUT FOLLOWING DATA IN SAP</b>");
+            sb.AppendFormat(@"
+                                        <div style='margin: 10px 0 10px 30px;font:14px calibri,sans-serif;'>
+                                             Exchange Rate Date : {0} <br/>
+                                             Currencies : {1} <br/>
+                                        </div>
+                                        <br/>                      
+                                        
+                                        <span style='font-size:x-small'>Please do not reply this email.</span>
+                                        </div>",
+                                        date.ToString("dd/MM/yyyy"),String.Join(",",currencies)
+                                        );
+            return sb.ToString();
+        }
+        private static string MailTemplateAdmin(DateTime date, List<string> currencies,string errorMsg)
+        {
+            StringBuilder sb = new StringBuilder();
+            sb.Append("<div style='font:16px calibri,sans-serif;'>This email is to notify you that,<br/>" +
+                      "There was <span style='color:red'> error </span> found in BOT Exchange Rate Auto Update To SAP.<br/>");
+            sb.Append(@"<b>Please consider to MANUAL INPUT FOLLOWING DATA IN SAP</b>");
+            sb.AppendFormat(@"
+                                        <div style='margin: 10px 0 10px 30px;font:14px calibri,sans-serif;'>
+                                             Exchange Rate Date : {0} <br/>
+                                             Currencies : {1} <br/>
+                                             Error Detail : {2} <br/>
+                                        </div>
+                                        <br/>                      
+                                        
+                                        <span style='font-size:x-small'>Please do not reply this email.</span>
+                                        </div>",
+                                        date.ToString("dd/MM/yyyy"), String.Join(",", currencies), errorMsg
+                                        );
+            return sb.ToString();
+        }
         private static async Task APIExecute(CurrencyRate db, DateTime transactionDate)
         {
             var resultRest = await BOTBusinessService.GetRate(db.Currency, transactionDate);

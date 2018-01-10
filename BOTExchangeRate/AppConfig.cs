@@ -154,6 +154,53 @@ namespace BOTExchangeRate
                 return GetString("SAPClient");
             }
         }
+
+
+
+        #region Email 
+        public static string MailServer
+        {
+            get
+            {
+                return GetString("MailServer");
+            }
+        }
+        public static string MailAdminAdress
+        {
+            get
+            {
+                return GetString("MailAdminAdress");
+            }
+        }
+        public static int MailServerPort
+        {
+            get
+            {
+                return GetInteger("MailServerPort");
+            }
+        }
+        public static int AlertCutOffTime
+        {
+            get
+            {
+                return GetInteger("AlertCutOffTime");
+            }
+        }
+        public static List<string> AlertUserEmail
+        {
+            get
+            {
+                return GetValue("AlertUserEmail", typeof(List<string>), ',') as List<string>;
+            }
+        }
+        public static List<string> AlertAdminEmail
+        {
+            get
+            {
+                return GetValue("AlertAdminEmail", typeof(List<string>), ',') as List<string>;
+            }
+        }
+        #endregion
     }
 
     internal static class ExceptionHandling
