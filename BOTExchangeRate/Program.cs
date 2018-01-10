@@ -16,7 +16,7 @@ namespace BOTExchangeRate
     //convert the data to object and keep in json log (also delete older than 30 days out of log)
     //call sap (check the log to write only incompleted record) and if success update json log
     //CallRESTAysnc().Wait();
-    class Program
+    public class Program
     {
         private static readonly ILog log = LogManager.GetLogger("Main");
         static void Main(string[] args)
@@ -138,8 +138,27 @@ namespace BOTExchangeRate
             }
 
             #region API Patch for non-value date
-            var patchingNeededDates = db.GetAllLog().Where(x => x.CurrenciesRate.Any(c => Appconfig.SyncCurrency.Contains(c.Currency) && c.isAPIComplete == true && c.isSyncSAP == false && c.Sell_SAP == (decimal)0 && c.Buy_SAP == (decimal)0)).ToList();//REVIEW
-            if (patchingNeededDates.Count > 0) Patching(Appconfig.SyncCurrency, patchingNeededDates);
+            log.Debug("==============================================================================");
+            log.Debug("CHECK PATCHING START");
+            log.Debug("==============================================================================");
+            try
+            {
+                var patchingNeededDates = db.GetAllLog().Where(x => x.CurrenciesRate.Any(c => Appconfig.SyncCurrency.Contains(c.Currency) && c.isAPIComplete == true && c.isSyncSAP == false && c.Sell_SAP == (decimal)0 && c.Buy_SAP == (decimal)0)).ToList();//REVIEW
+                if (patchingNeededDates.Count > 0)
+                {
+                    log.Debug("PATCHING FOUND");
+                    Patching(Appconfig.SyncCurrency, patchingNeededDates);
+                    log.Debug("PATCHING END");
+                }
+            }
+            catch (Exception ex )
+            {
+                log.Debug("==============================================================================");
+                log.Debug("CHECK PATCHING ERROR : CHECK THE EXCEPTION BELOW");
+                log.Debug("==============================================================================");
+                ExceptionHandling.LogException(ex);
+            }
+           
             #endregion
 
             #region SAP Part
@@ -148,9 +167,9 @@ namespace BOTExchangeRate
             log.Debug("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++");
             log.Debug("SAP START");
             log.Debug("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++");
-            var sapSent = db.GetAllLog().Where(x => x.CurrenciesRate.Any(c => Appconfig.SyncCurrency.Contains(c.Currency) && c.isAPIComplete == true && c.isSyncSAP == false && c.Sell_SAP != (decimal)0 && c.Buy_SAP != (decimal)0)).ToList();
             try
             {
+                var sapSent = db.GetAllLog().Where(x => x.CurrenciesRate.Any(c => Appconfig.SyncCurrency.Contains(c.Currency) && c.isAPIComplete == true && c.isSyncSAP == false && c.Sell_SAP != (decimal)0 && c.Buy_SAP != (decimal)0)).ToList();
                 #region  SAP Connection
                 DestinationRegister.RegistrationDestination(new SAPDestinationSetting
                 {
@@ -321,10 +340,10 @@ namespace BOTExchangeRate
 
         }
 
-        private static void Patching(List<string> currencies, List<DailyLog> log)
+        public static void Patching(List<string> currencies, List<DailyLog> log)
         {
             var allDates = log.Select(x => x.Date).ToList();
-            DateTime lowerBoundary = allDates.OrderBy(x => x).First().AddDays(-10);
+            DateTime lowerBoundary = allDates.OrderBy(x => x).First().AddDays(-10);//6/1/2018
             DateTime higherBoundary = allDates.OrderByDescending(x => x).First();
             List<Task<List<DailyLog>>> taskList = new List<Task<List<DailyLog>>>();
             foreach (var currency in currencies)

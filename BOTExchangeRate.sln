@@ -9,6 +9,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MaleeUtilities", "..\..\Mal
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "JSONConfigHelper", "JSONConfigHelper\JSONConfigHelper.csproj", "{682EC9F6-5E74-4B02-98C9-BB876AA16FA1}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BOTUnitTest", "BOTUnitTest\BOTUnitTest.csproj", "{009AF13F-EE54-4E91-9B6D-702F41276AD3}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -27,6 +29,10 @@ Global
 		{682EC9F6-5E74-4B02-98C9-BB876AA16FA1}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{682EC9F6-5E74-4B02-98C9-BB876AA16FA1}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{682EC9F6-5E74-4B02-98C9-BB876AA16FA1}.Release|Any CPU.Build.0 = Release|Any CPU
+		{009AF13F-EE54-4E91-9B6D-702F41276AD3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{009AF13F-EE54-4E91-9B6D-702F41276AD3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{009AF13F-EE54-4E91-9B6D-702F41276AD3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{009AF13F-EE54-4E91-9B6D-702F41276AD3}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
