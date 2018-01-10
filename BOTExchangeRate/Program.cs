@@ -80,7 +80,7 @@ namespace BOTExchangeRate
                 foreach (var recoveryDate in Appconfig.RecoveryDate)
                 {
                     DateTime tryResult;
-                    if (DateTime.TryParseExact(recoveryDate, "d/MM/yyyy", new CultureInfo("en-US"), DateTimeStyles.None, out tryResult))
+                    if (DateTime.TryParseExact(recoveryDate, "d/M/yyyy", new CultureInfo("en-US"), DateTimeStyles.None, out tryResult))
                     {
                         dateToRun.Add(tryResult);
                     }
@@ -103,6 +103,10 @@ namespace BOTExchangeRate
                     //if sap is sync we will not call api again
                     if (currencyInDb.isSyncSAP == false)
                     {
+                        if (currencyInDb.isAPIComplete)
+                        {
+                            log.Debug(String.Format(@"NOTE : THERE WAS FINISHED API CALL BUT SAP ERROR --> RECALL API AGAIN {0} {1}",currencyInDb.Currency,currencyInDb.Date.ToShortDateString()));
+                        }
                         taskList.Add(APIExecute(currencyInDb, transactionDate));
                     }
                 }
@@ -141,136 +145,156 @@ namespace BOTExchangeRate
             #region SAP Part
             /// we will send sap only isAPIcomplete and if none of Buy and Sell we will use the last known value before that day to be value sent to SAP
             /// send only currency config, only isAPIComplete = true, only isSAPComplete = false
+            log.Debug("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++");
+            log.Debug("SAP START");
+            log.Debug("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++");
             var sapSent = db.GetAllLog().Where(x => x.CurrenciesRate.Any(c => Appconfig.SyncCurrency.Contains(c.Currency) && c.isAPIComplete == true && c.isSyncSAP == false && c.Sell_SAP != (decimal)0 && c.Buy_SAP != (decimal)0)).ToList();
-
-            #region  SAP Connection
-            DestinationRegister.RegistrationDestination(new SAPDestinationSetting
+            try
             {
-                AppServerHost = Appconfig.SAPServerHost,
-                Client = Appconfig.SAPClient,
-                User = Appconfig.SAPUser,
-                Password = Appconfig.SAPPassword,
-                SystemNumber = Appconfig.SAPSystemNumber,
-                SystemID = Appconfig.SAPSystemID,
-            });
-            var des = RfcDestinationManager.GetDestination(DestinationRegister.Destination());
-            IRfcFunction function = des.Repository.CreateFunction("ZBAPI_EXCHANGERATE_UPDATE");
-            #endregion
-
-            #region example for input structure as input bapi
-
-            /*
-             * TABLE :I_EXCHANGE
-             STRUCTURE BAPI1093_0
-                RATE_TYPE	Exchange Rate Type , B = buy // M = sell
-                FROM_CURR	From currency
-                TO_CURRNCY	To-currency
-                VALID_FROM	Date from Which Entry Is Valid (yyyy-MM-dd)
-                EXCH_RATE	Direct Quoted Exchange Rate
-                FROM_FACTOR	Ratio for the "From" Currency Units, 1 // if JPY this is 100
-                TO_FACTOR	Ratio for the "To" Currency Units, 1
-                EXCH_RATE_V	Indirect Quoted Exchange Rate ****No input
-                FROM_FACTOR_V	Ratio for the "From" Currency Units ****No input
-                TO_FACTOR_V	Ratio for the "To" Currency Units ****No input
-            */
-            IRfcTable table = function["I_EXCHANGE"].GetTable();//table
-            List<CurrencyRate> sentSAP = new List<CurrencyRate>();
-            foreach (var dailyLog in sapSent)
-            {
-                foreach (var cur in dailyLog.CurrenciesRate.Where(c => Appconfig.SyncCurrency.Contains(c.Currency) && c.isAPIComplete == true && c.isSyncSAP == false && c.Sell_SAP != (decimal)0 && c.Buy_SAP != (decimal)0))
+                #region  SAP Connection
+                DestinationRegister.RegistrationDestination(new SAPDestinationSetting
                 {
-                    table.Append();//create new row
-                    IRfcStructure Buy = table.CurrentRow;//current structure ,row
-                    string structure_name = Buy.Metadata.Name;
-                    //Buy
-                    Buy.SetValue("RATE_TYPE", "B");
-                    Buy.SetValue("FROM_CURR", cur.Currency);
-                    Buy.SetValue("TO_CURRNCY", "THB");
-                    Buy.SetValue("VALID_FROM", dailyLog.Date.ToString("yyyy-MM-dd", new CultureInfo("en-US")));
-                    Buy.SetValue("EXCH_RATE", cur.Buy_SAP.ToString("0.#####"));
-                    if (currencyRatioDict.ContainsKey(cur.Currency)) Buy.SetValue("FROM_FACTOR", currencyRatioDict[cur.Currency]);
-                    else Buy.SetValue("FROM_FACTOR", 1);
-                    Buy.SetValue("TO_FACTOR", 1);
-                    log.Debug(String.Format("{0}  {1}  {2}  {3}  {4}", "B", cur.Currency, "THB", dailyLog.Date.ToString("ddMMyyyy", new CultureInfo("en-US")), cur.Buy_SAP.ToString("0.#####")));
+                    AppServerHost = Appconfig.SAPServerHost,
+                    Client = Appconfig.SAPClient,
+                    User = Appconfig.SAPUser,
+                    Password = Appconfig.SAPPassword,
+                    SystemNumber = Appconfig.SAPSystemNumber,
+                    SystemID = Appconfig.SAPSystemID,
+                });
+                var des = RfcDestinationManager.GetDestination(DestinationRegister.Destination());
+                IRfcFunction function = des.Repository.CreateFunction("ZBAPI_EXCHANGERATE_UPDATE");
+                #endregion
 
-                    table.Append();//create new row
-                    IRfcStructure Sell = table.CurrentRow;//current structure ,row
-                    //Sell
-                    Sell.SetValue("RATE_TYPE", "M");
-                    Sell.SetValue("FROM_CURR", cur.Currency);
-                    Sell.SetValue("TO_CURRNCY", "THB");
-                    Sell.SetValue("VALID_FROM", dailyLog.Date.ToString("yyyy-MM-dd", new CultureInfo("en-US")));
-                    Sell.SetValue("EXCH_RATE", cur.Sell_SAP.ToString("0.#####"));
-                    if (currencyRatioDict.ContainsKey(cur.Currency)) Sell.SetValue("FROM_FACTOR", currencyRatioDict[cur.Currency]);
-                    else Sell.SetValue("FROM_FACTOR", 1);
-                    Sell.SetValue("TO_FACTOR", 1);
-                    log.Debug(String.Format("{0}  {1}  {2}  {3}  {4}", "M", cur.Currency, "THB", dailyLog.Date.ToString("ddMMyyyy", new CultureInfo("en-US")), cur.Sell_SAP.ToString("0.#####")));
-                    sentSAP.Add(cur);
-                }
-            }
+                #region example for input structure as input bapi
 
-            var count = table.Count;
-            #endregion
-            if (count > 0)
-            {
-                try
+                /*
+                 * TABLE :I_EXCHANGE
+                 STRUCTURE BAPI1093_0
+                    RATE_TYPE	Exchange Rate Type , B = buy // M = sell
+                    FROM_CURR	From currency
+                    TO_CURRNCY	To-currency
+                    VALID_FROM	Date from Which Entry Is Valid (yyyy-MM-dd)
+                    EXCH_RATE	Direct Quoted Exchange Rate
+                    FROM_FACTOR	Ratio for the "From" Currency Units, 1 // if JPY this is 100
+                    TO_FACTOR	Ratio for the "To" Currency Units, 1
+                    EXCH_RATE_V	Indirect Quoted Exchange Rate ****No input
+                    FROM_FACTOR_V	Ratio for the "From" Currency Units ****No input
+                    TO_FACTOR_V	Ratio for the "To" Currency Units ****No input
+                */
+                IRfcTable table = function["I_EXCHANGE"].GetTable();//table
+                List<CurrencyRate> sentSAP = new List<CurrencyRate>();
+                foreach (var dailyLog in sapSent)
                 {
-
-                    function.Invoke(des);
-                    sentSAP.ForEach(x =>
+                    foreach (var cur in dailyLog.CurrenciesRate.Where(c => Appconfig.SyncCurrency.Contains(c.Currency) && c.isAPIComplete == true && c.isSyncSAP == false && c.Sell_SAP != (decimal)0 && c.Buy_SAP != (decimal)0))
                     {
-                        x.isSyncSAP = true;
-                    });
+                        table.Append();//create new row
+                        IRfcStructure Buy = table.CurrentRow;//current structure ,row
+                        string structure_name = Buy.Metadata.Name;
+                        //Buy
+                        Buy.SetValue("RATE_TYPE", "B");
+                        Buy.SetValue("FROM_CURR", cur.Currency);
+                        Buy.SetValue("TO_CURRNCY", "THB");
+                        Buy.SetValue("VALID_FROM", dailyLog.Date.ToString("yyyy-MM-dd", new CultureInfo("en-US")));
+                        Buy.SetValue("EXCH_RATE", cur.Buy_SAP.ToString("0.#####"));
+                        if (currencyRatioDict.ContainsKey(cur.Currency)) Buy.SetValue("FROM_FACTOR", currencyRatioDict[cur.Currency]);
+                        else Buy.SetValue("FROM_FACTOR", 1);
+                        Buy.SetValue("TO_FACTOR", 1);
+                        log.Debug(String.Format("{0}  {1}  {2}  {3}  {4}", "B", cur.Currency, "THB", dailyLog.Date.ToString("ddMMyyyy", new CultureInfo("en-US")), cur.Buy_SAP.ToString("0.#####")));
 
-                }
-                catch (SAP.Middleware.Connector.RfcAbapClassicException ex)
-                {
-                    if (ex.Key == "SAPSQL_ARRAY_INSERT_DUPREC")
-                    {
-                        //dublicate record found
-                        log.Debug("-----------------------------------------------------------------");
-                        log.Debug("SAP CALLED Error : DUBLICATED RECORD FOUND IN SAP.");
-                        log.Debug("-----------------------------------------------------------------");
+                        table.Append();//create new row
+                        IRfcStructure Sell = table.CurrentRow;//current structure ,row
+                                                              //Sell
+                        Sell.SetValue("RATE_TYPE", "M");
+                        Sell.SetValue("FROM_CURR", cur.Currency);
+                        Sell.SetValue("TO_CURRNCY", "THB");
+                        Sell.SetValue("VALID_FROM", dailyLog.Date.ToString("yyyy-MM-dd", new CultureInfo("en-US")));
+                        Sell.SetValue("EXCH_RATE", cur.Sell_SAP.ToString("0.#####"));
+                        if (currencyRatioDict.ContainsKey(cur.Currency)) Sell.SetValue("FROM_FACTOR", currencyRatioDict[cur.Currency]);
+                        else Sell.SetValue("FROM_FACTOR", 1);
+                        Sell.SetValue("TO_FACTOR", 1);
+                        log.Debug(String.Format("{0}  {1}  {2}  {3}  {4}", "M", cur.Currency, "THB", dailyLog.Date.ToString("ddMMyyyy", new CultureInfo("en-US")), cur.Sell_SAP.ToString("0.#####")));
+                        sentSAP.Add(cur);
                     }
-                    ExceptionHandling.LogException(ex);
+                }
+
+                var count = table.Count;
+                #endregion
+                if (count > 0)
+                {
+                    try
+                    {
+
+                        function.Invoke(des);
+                        sentSAP.ForEach(x =>
+                        {
+                            x.isSyncSAP = true;
+                        });
+
+                    }
+                    catch (SAP.Middleware.Connector.RfcAbapClassicException ex)
+                    {
+                        if (ex.Key == "SAPSQL_ARRAY_INSERT_DUPREC")
+                        {
+                            //dublicate record found
+                            log.Debug("-----------------------------------------------------------------");
+                            log.Debug("SAP BAPI CALL Error : DUBLICATED RECORD FOUND IN SAP.");
+                            log.Debug("-----------------------------------------------------------------");
+                        }
+                        ExceptionHandling.LogException(ex);
+                    }
+                    catch (Exception ex)
+                    {
+                        log.Debug("-----------------------------------------------------------------");
+                        log.Debug("SAP BAPI CALL Error : READ THE EXCEPTION DETAIL.");
+                        log.Debug("-----------------------------------------------------------------");
+                        ExceptionHandling.LogException(ex);
+                    }
+                }
+                //Call bapi
+
+                #region example for fetch structure as object
+                /*
+                 *  IRfcParameter export = function["PRHEADER"];
+                IRfcStructure structure = export.GetStructure();
+                var setting = new PropertiesList<DataContainer>
+                {
+                    { "PREQ_NO", x=>x.PREQ_NO},
+                    { "PREQ_NO", x=>x.PREQ_NO},
+                    { "PR_TYPE", x=>x.PR_TYPE},
+                    { "CTRL_IND", x=>x.CTRL_IND},
+                };
+                DataContainer output = structure.ToObject(setting);*/
+                #endregion
+
+                IRfcParameter returnTable = function["I_EXCHANGE"];
+                IRfcTable table1 = returnTable.GetTable();
+
+                //foreach (IRfcStructure record in table1)
+                //{
+                //    Console.WriteLine(String.Format("{0}:{1}", record.GetInt("PREQ_ITEM"), record.GetValue("PREQ_ITEM").ToString()));
+                //}
+
+                if (!db.SaveChange())
+                {
+                    log.Debug("-----------------------------------------------------------------");
+                    log.Debug("Log Update Error");
+                    log.Debug("-----------------------------------------------------------------");
+                }
+                else
+                {
+                    log.Debug("-----------------------------------------------------------------");
+                    log.Debug("Log Update Successful");
+                    log.Debug("-----------------------------------------------------------------");
                 }
             }
-            //Call bapi
-
-            #region example for fetch structure as object
-            /*
-             *  IRfcParameter export = function["PRHEADER"];
-            IRfcStructure structure = export.GetStructure();
-            var setting = new PropertiesList<DataContainer>
-            {
-                { "PREQ_NO", x=>x.PREQ_NO},
-                { "PREQ_NO", x=>x.PREQ_NO},
-                { "PR_TYPE", x=>x.PR_TYPE},
-                { "CTRL_IND", x=>x.CTRL_IND},
-            };
-            DataContainer output = structure.ToObject(setting);*/
-            #endregion
-
-            IRfcParameter returnTable = function["I_EXCHANGE"];
-            IRfcTable table1 = returnTable.GetTable();
-
-            //foreach (IRfcStructure record in table1)
-            //{
-            //    Console.WriteLine(String.Format("{0}:{1}", record.GetInt("PREQ_ITEM"), record.GetValue("PREQ_ITEM").ToString()));
-            //}
-
-            if (!db.SaveChange())
+            catch (Exception ex)
             {
                 log.Debug("-----------------------------------------------------------------");
-                log.Debug("Log Update Error");
+                log.Debug("SAP PART Error :  READ THE EXCEPTION DETAIL.");
                 log.Debug("-----------------------------------------------------------------");
+                ExceptionHandling.LogException(ex);
             }
-            else
-            {
-                log.Debug("-----------------------------------------------------------------");
-                log.Debug("Log Update Successful");
-                log.Debug("-----------------------------------------------------------------");
-            }
+           
             #endregion
             log.Debug("*******************************************************************");
             log.Debug("PROGRAM RUNS COMPLETED " + programDatetime.ToString("dd/MM/yyyy HH:mm:ss"));
