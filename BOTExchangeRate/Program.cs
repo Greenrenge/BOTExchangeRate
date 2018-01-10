@@ -344,7 +344,7 @@ namespace BOTExchangeRate
                     //send email to user
                     Email userMail = new Email();
                     userMail.Cc = Appconfig.AlertAdminEmail;
-                    userMail.From = Appconfig.MailAdminAdress;
+                    userMail.From = Appconfig.MailAdminAddress;
                     userMail.To = Appconfig.AlertUserEmail;
                     userMail.Subject = @"[BOTExchangeRate] ERROR UPDATE TO SAP NOTIFICATION";
                     userMail.SenderName = @"BOTExchange Automatic Email Alert";
@@ -355,7 +355,7 @@ namespace BOTExchangeRate
                     if (!isSAPCompleted)
                     {
                         Email adminMail = new Email();
-                        adminMail.From = Appconfig.MailAdminAdress;
+                        adminMail.From = Appconfig.MailAdminAddress;
                         adminMail.To = Appconfig.AlertAdminEmail;
                         adminMail.Subject = @"[BOTExchangeRate] ERROR UPDATE TO SAP NOTIFICATION [DEBUG]";
                         adminMail.SenderName = @"BOTExchange Automatic Email Alert";

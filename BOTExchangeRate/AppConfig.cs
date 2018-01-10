@@ -165,11 +165,11 @@ namespace BOTExchangeRate
                 return GetString("MailServer");
             }
         }
-        public static string MailAdminAdress
+        public static string MailAdminAddress
         {
             get
             {
-                return GetString("MailAdminAdress");
+                return GetString("MailAdminAddress");
             }
         }
         public static int MailServerPort
